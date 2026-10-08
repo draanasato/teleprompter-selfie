@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Teleprompter Selfie</title>
+<meta name="theme-color" content="#0c0d10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Teleprompter">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Layout: câmera em tela cheia; faixa do roteiro colada no topo (perto da lente); controles no rodapé. */
+:root{
+  --ink:#0c0d10;          /* fundo */
+  --glass:rgba(12,13,16,.55);
+  --paper:#f5f3ee;        /* texto do roteiro */
+  --muted:#a9adb8;
+  --cue:#f2b544;          /* linha de leitura / ênfase */
+  --rec:#ff3b30;
+  --line:rgba(255,255,255,.14);
+  --font:"Atkinson Hyperlegible",-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  --size:30px;
+  --band:36vh;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;background:var(--ink);color:var(--paper);font-family:var(--font);overflow:hidden;overscroll-behavior:none}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--cue);outline-offset:2px}
+
+#stage{position:fixed;inset:0;background:#000}
+#cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#cam.mirror{transform:scaleX(-1)}
+
+/* Faixa do teleprompter */
+#prompter{position:absolute;left:0;right:0;top:0;height:calc(var(--band) + env(safe-area-inset-top,0px));
+  padding-top:env(safe-area-inset-top,0px);background:var(--glass);overflow:hidden;touch-action:none;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 14%,#000 80%,transparent 100%);
+          mask-image:linear-gradient(to bottom,transparent 0,#000 14%,#000 80%,transparent 100%)}
+#scroll{padding:0 22px;will-change:transform}
+#scroll p{margin:0 0 .7em;font-size:var(--size);line-height:1.38;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,.6);overflow-wrap:break-word}
+#scroll em{font-style:normal;color:var(--cue)}
+#scroll .end{color:var(--muted);font-weight:400;font-size:calc(var(--size)*.6);text-align:center}
+#cueline{position:absolute;left:6px;width:10px;height:0;border-top:10px solid transparent;border-bottom:10px solid transparent;border-left:12px solid var(--cue);pointer-events:none}
+#lens{position:absolute;top:calc(env(safe-area-inset-top,0px) + 4px);left:50%;transform:translateX(-50%);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);pointer-events:none}
+#paused{position:absolute;right:12px;bottom:12px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;background:rgba(0,0,0,.6);padding:4px 8px;border-radius:6px;color:var(--cue);pointer-events:none}
+
+/* Rodapé */
+#bar{position:absolute;left:0;right:0;bottom:0;padding:14px 16px calc(18px + env(safe-area-inset-bottom,0px));
+  display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;
+  background:linear-gradient(to top,rgba(0,0,0,.6),transparent)}
+.side{display:flex;gap:10px}
+.side.right{justify-content:flex-end}
+.pill{border:1px solid var(--line);background:var(--glass);border-radius:999px;padding:10px 14px;font-size:14px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);min-height:44px}
+#recBtn{width:76px;height:76px;border-radius:50%;border:4px solid #fff;background:transparent;padding:0;display:grid;place-items:center}
+#recBtn span{display:block;width:58px;height:58px;border-radius:50%;background:var(--rec);transition:all .2s}
+#recBtn.on span{width:28px;height:28px;border-radius:6px}
+#timer{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(112px + env(safe-area-inset-bottom,0px));
+  font-variant-numeric:tabular-nums;font-size:15px;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:6px;display:flex;align-items:center;gap:6px}
+#timer::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--rec)}
+#speedCtl{display:flex;gap:8px;align-items:center}
+#speedCtl button{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--glass);font-size:20px}
+#speedVal{font-size:13px;color:var(--muted);min-width:3ch;text-align:center;font-variant-numeric:tabular-nums}
+
+#count{position:absolute;inset:0;display:grid;place-items:center;font-size:30vw;font-weight:700;color:#fff;text-shadow:0 4px 30px rgba(0,0,0,.6);pointer-events:none}
+
+/* Painéis */
+.sheet{position:fixed;left:0;right:0;bottom:0;max-height:88%;background:#16181d;border-top:1px solid var(--line);
+  border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:14px;overflow:auto;z-index:5}
+.sheet h2{margin:0;font-size:18px}
+.sheet .hint{margin:0;color:var(--muted);font-size:13px;line-height:1.45}
+.sheet textarea{width:100%;min-height:42vh;resize:vertical;background:#0f1014;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:16px;line-height:1.5}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>button{flex:1 1 140px}
+.primary{background:var(--paper);color:var(--ink);border:0;border-radius:12px;padding:14px;font-weight:700;min-height:48px}
+.ghost{background:transparent;border:1px solid var(--line);border-radius:12px;padding:14px;min-height:48px}
+.field{display:grid;gap:6px}
+.field label{display:flex;justify-content:space-between;font-size:14px}
+.field label output{color:var(--cue);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--cue);height:32px}
+.check{display:flex;gap:10px;align-items:center;font-size:15px;min-height:44px}
+.check input{width:22px;height:22px;accent-color:var(--cue)}
+#review video{width:100%;max-height:52vh;border-radius:12px;background:#000}
+#msg{position:fixed;left:16px;right:16px;top:40%;background:#16181d;border:1px solid var(--line);border-radius:14px;padding:18px;font-size:15px;line-height:1.5;z-index:6}
+#msg p{margin:0 0 12px}
+@media (prefers-reduced-motion:reduce){#recBtn span{transition:none}}
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="cam" playsinline autoplay muted class="mirror"></video>
+
+  <div id="prompter" aria-label="Roteiro. Toque para pausar ou continuar; arraste para voltar ou avançar.">
+    <div id="lens">▲ câmera</div>
+    <div id="cueline"></div>
+    <div id="scroll"></div>
+    <div id="paused" hidden>Pausado</div>
+  </div>
+
+  <div id="timer" hidden>00:00</div>
+  <div id="count" hidden></div>
+
+  <div id="bar">
+    <div class="side" id="leftCtl">
+      <button class="pill" id="scriptBtn">Roteiro</button>
+      <button class="pill" id="setBtn">Ajustes</button>
+    </div>
+    <button id="recBtn" aria-label="Gravar"><span></span></button>
+    <div class="side right">
+      <button class="pill" id="flipBtn" aria-label="Trocar câmera">Trocar</button>
+      <div id="speedCtl" hidden>
+        <button id="slower" aria-label="Mais devagar">−</button>
+        <span id="speedVal"></span>
+        <button id="faster" aria-label="Mais rápido">+</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<section class="sheet" id="scriptSheet" hidden>
+  <h2>Roteiro</h2>
+  <p class="hint">Cole ou escreva o texto. Linha em branco separa parágrafos. Palavras entre *asteriscos* aparecem destacadas.</p>
+  <textarea id="scriptText" spellcheck="true"></textarea>
+  <div class="row">
+    <button class="ghost" id="scriptCancel">Cancelar</button>
+    <button class="primary" id="scriptSave">Usar este texto</button>
+  </div>
+</section>
+
+<section class="sheet" id="setSheet" hidden>
+  <h2>Ajustes</h2>
+  <div class="field"><label for="speed">Velocidade <output id="speedOut"></output></label><input type="range" id="speed" min="10" max="150" step="5"></div>
+  <div class="field"><label for="size">Tamanho da letra <output id="sizeOut"></output></label><input type="range" id="size" min="18" max="60" step="1"></div>
+  <div class="field"><label for="band">Altura da faixa <output id="bandOut"></output></label><input type="range" id="band" min="20" max="60" step="1"></div>
+  <label class="check"><input type="checkbox" id="countdown"> Contagem de 3 segundos antes de gravar</label>
+  <label class="check"><input type="checkbox" id="hiq"> Alta qualidade (1080p, arquivo maior)</label>
+  <p class="hint">Durante a gravação: toque no texto para pausar ou continuar a rolagem (o vídeo segue gravando). Arraste o texto para voltar ou avançar. O texto aparece só na sua tela; ele não entra no vídeo.</p>
+  <button class="primary" id="setClose">Pronto</button>
+</section>
+
+<section class="sheet" id="review" hidden>
+  <h2>Vídeo gravado</h2>
+  <video id="playback" controls playsinline></video>
+  <p class="hint" id="reviewInfo"></p>
+  <div class="row">
+    <button class="primary" id="saveBtn">Salvar no celular</button>
+    <button class="ghost" id="dlBtn">Baixar arquivo</button>
+  </div>
+  <button class="ghost" id="againBtn">Descartar e gravar de novo</button>
+</section>
+
+<div id="msg" hidden></div>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('tp.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem('tp.' + k, JSON.stringify(v)); } catch {} }
+  };
+
+  const SAMPLE = `Texto de exemplo. Toque em "Roteiro" para trocar pelo seu.
+
+Você sabia que o tempo em que trabalhou como *autônomo* pode somar com o tempo de *carteira assinada* na aposentadoria?
+
+Muita gente deixa de contar esses períodos porque não confere o extrato do INSS.
+
+Antes de pedir qualquer benefício, peça o seu *CNIS* e veja se todos os seus trabalhos estão lá.
+
+Se faltar alguma coisa, dá para corrigir com documentos.
+
+Salve este vídeo para não esquecer.`;
+
+  const settings = Object.assign({ speed: 40, size: 30, band: 36, countdown: true, hiq: true, facing: 'user' }, store.get('settings', {}));
+  let script = store.get('script', SAMPLE);
+
+  const cam = $('#cam'), prompter = $('#prompter'), scrollEl = $('#scroll'), cueline = $('#cueline');
+  let stream = null, rec = null, chunks = [], blob = null, blobUrl = null;
+  let recording = false, playing = false, pos = 0, maxPos = 0, lastT = 0, startedAt = 0, timerId = 0, wakeLock = null;
+
+  /* ---------- Texto ---------- */
+  function esc(s) { return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  function renderScript() {
+    const paras = script.trim().split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+    scrollEl.innerHTML = paras.map(p => '<p>' + esc(p).replace(/\n/g, '<br>').replace(/\*([^*]+)\*/g, '<em>$1</em>') + '</p>').join('') +
+      '<p class="end">— fim —</p>';
+    layout();
+  }
+  function cueY() { return prompter.clientHeight * 0.28; }
+  function layout() {
+    document.documentElement.style.setProperty('--size', settings.size + 'px');
+    document.documentElement.style.setProperty('--band', settings.band + 'vh');
+    requestAnimationFrame(() => {
+      const top = cueY();
+      scrollEl.style.paddingTop = (top - parseFloat(getComputedStyle(prompter).paddingTop)) + 'px';
+      scrollEl.style.paddingBottom = prompter.clientHeight + 'px';
+      cueline.style.top = (top + settings.size * 0.69 - 10) + 'px';
+      maxPos = Math.max(0, scrollEl.scrollHeight - prompter.clientHeight);
+      pos = Math.min(pos, maxPos); apply();
+    });
+  }
+  function apply() { scrollEl.style.transform = 'translate3d(0,' + (-pos) + 'px,0)'; }
+
+  function tick(t) {
+    const dt = lastT ? Math.min(0.1, (t - lastT) / 1000) : 0; lastT = t;
+    if (playing) {
+      pos += settings.speed * dt;
+      if (pos >= maxPos) { pos = maxPos; setPlaying(false); }
+      apply();
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  function setPlaying(v) { playing = v; $('#paused').hidden = v || !recording; }
+
+  // Toque = pausa/continua; arrastar = reposiciona
+  let drag = null;
+  prompter.addEventListener('pointerdown', e => { drag = { y: e.clientY, p: pos, moved: false }; prompter.setPointerCapture(e.pointerId); });
+  prompter.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dy = e.clientY - drag.y;
+    if (Math.abs(dy) > 6) drag.moved = true;
+    if (drag.moved) { pos = Math.max(0, Math.min(maxPos, drag.p - dy)); apply(); }
+  });
+  prompter.addEventListener('pointerup', () => {
+    if (drag && !drag.moved && recording) setPlaying(!playing);
+    drag = null;
+  });
+  prompter.addEventListener('pointercancel', () => { drag = null; });
+
+  /* ---------- Câmera ---------- */
+  function stopTracks() { if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; }
+  async function startCamera() {
+    stopTracks();
+    const hi = settings.hiq;
+    const video = { facingMode: settings.facing, width: { ideal: hi ? 1080 : 720 }, height: { ideal: hi ? 1920 : 1280 }, frameRate: { ideal: 30 } };
+    const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video, audio });
+    } catch (err) {
+      try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: settings.facing }, audio: true }); }
+      catch (err2) { return showMsg(cameraError(err2)); }
+    }
+    cam.srcObject = stream;
+    cam.classList.toggle('mirror', settings.facing === 'user');
+    try { await cam.play(); } catch {}
+  }
+  function cameraError(err) {
+    if (!window.isSecureContext) return 'A câmera só funciona com o app aberto por um endereço https.';
+    if (err && err.name === 'NotAllowedError') return 'O acesso à câmera ou ao microfone foi negado. Libere nas configurações do navegador para este site e recarregue a página.';
+    if (err && err.name === 'NotReadableError') return 'A câmera está sendo usada por outro app. Feche o outro app e toque em OK.';
+    return 'Não consegui abrir a câmera (' + (err && err.name || 'erro') + '). Toque em OK para tentar de novo.';
+  }
+  function showMsg(text) {
+    const m = $('#msg');
+    m.innerHTML = '<p></p><button class="primary" style="width:100%">OK</button>';
+    m.querySelector('p').textContent = text;
+    m.hidden = false;
+    m.querySelector('button').onclick = () => { m.hidden = true; startCamera(); };
+  }
+
+  async function keepAwake() {
+    try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch {}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      keepAwake();
+      if (!stream || stream.getVideoTracks().every(t => t.readyState === 'ended')) startCamera();
+    } else if (recording) {
+      stopRecording(); // o celular suspende a câmera fora da tela; salva o que já foi gravado
+    }
+  });
+
+  /* ---------- Gravação ---------- */
+  function pickMime() {
+    if (!window.MediaRecorder) return null;
+    const c = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+    return c.find(t => MediaRecorder.isTypeSupported(t)) || '';
+  }
+
+  async function countdown() {
+    const el = $('#count'); el.hidden = false;
+    for (const n of [3, 2, 1]) { el.textContent = n; await new Promise(r => setTimeout(r, 1000)); }
+    el.hidden = true;
+  }
+
+  async function startRecording() {
+    if (!stream) await startCamera();
+    if (!stream) return;
+    const mime = pickMime();
+    if (mime === null) return showMsg('Este navegador não grava vídeo. Use o Safari (iPhone) ou o Chrome (Android).');
+    toggleUI(true);
+    if (settings.countdown) await countdown();
+    chunks = [];
+    const opts = { videoBitsPerSecond: settings.hiq ? 10_000_000 : 5_000_000, audioBitsPerSecond: 128_000 };
+    if (mime) opts.mimeType = mime;
+    try { rec = new MediaRecorder(stream, opts); }
+    catch { rec = new MediaRecorder(stream); }
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = finishRecording;
+    rec.start(1000);
+    recording = true; $('#recBtn').classList.add('on'); $('#recBtn').setAttribute('aria-label', 'Parar');
+    startedAt = Date.now(); $('#timer').hidden = false; updateTimer(); timerId = setInterval(updateTimer, 500);
+    setPlaying(true);
+    keepAwake();
+  }
+  function stopRecording() {
+    if (!recording) return;
+    recording = false; setPlaying(false);
+    clearInterval(timerId); $('#timer').hidden = true;
+    $('#recBtn').classList.remove('on'); $('#recBtn').setAttribute('aria-label', 'Gravar');
+    try { rec.stop(); } catch { finishRecording(); }
+  }
+  function updateTimer() {
+    const s = Math.floor((Date.now() - startedAt) / 1000);
+    $('#timer').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  }
+  function finishRecording() {
+    toggleUI(false);
+    if (!chunks.length) return;
+    const type = (rec && rec.mimeType) || chunks[0].type || 'video/mp4';
+    blob = new Blob(chunks, { type });
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    blobUrl = URL.createObjectURL(blob);
+    $('#playback').src = blobUrl;
+    const mb = (blob.size / 1048576).toFixed(1);
+    $('#reviewInfo').textContent = 'Arquivo ' + ext() + ', ' + mb + ' MB. ' + (/iPhone|iPad/.test(navigator.userAgent) ? 'Em "Salvar no celular", escolha "Salvar Vídeo" para ir para o app Fotos.' : 'Em "Salvar no celular", escolha onde guardar (Galeria, Drive, WhatsApp).');
+    open('#review');
+  }
+  function ext() { return blob && blob.type.includes('mp4') ? 'mp4' : 'webm'; }
+  function fileName() {
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    return 'video-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + '.' + ext();
+  }
+  function download() {
+    const a = document.createElement('a'); a.href = blobUrl; a.download = fileName();
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  function toggleUI(rec) {
+    $('#leftCtl').style.visibility = rec ? 'hidden' : 'visible';
+    $('#flipBtn').hidden = rec;
+    $('#speedCtl').hidden = !rec;
+    $('#speedVal').textContent = settings.speed;
+  }
+
+  /* ---------- Painéis ---------- */
+  function open(id) { document.querySelectorAll('.sheet').forEach(s => s.hidden = true); $(id).hidden = false; }
+  function close() { document.querySelectorAll('.sheet').forEach(s => s.hidden = true); }
+
+  let starting = false;
+  $('#recBtn').onclick = async () => {
+    if (recording) return stopRecording();
+    if (starting) return;
+    starting = true;
+    try { await startRecording(); } finally { starting = false; }
+  };
+  $('#scriptBtn').onclick = () => { $('#scriptText').value = script; open('#scriptSheet'); };
+  $('#scriptCancel').onclick = close;
+  $('#scriptSave').onclick = () => { script = $('#scriptText').value || ''; store.set('script', script); pos = 0; renderScript(); close(); };
+  $('#setBtn').onclick = () => { syncSettingsUI(); open('#setSheet'); };
+  $('#setClose').onclick = close;
+  $('#flipBtn').onclick = () => { settings.facing = settings.facing === 'user' ? 'environment' : 'user'; saveSettings(); startCamera(); };
+  $('#slower').onclick = () => { settings.speed = Math.max(10, settings.speed - 5); $('#speedVal').textContent = settings.speed; saveSettings(); };
+  $('#faster').onclick = () => { settings.speed = Math.min(150, settings.speed + 5); $('#speedVal').textContent = settings.speed; saveSettings(); };
+
+  $('#saveBtn').onclick = async () => {
+    const file = new File([blob], fileName(), { type: blob.type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); } catch (e) { if (e.name !== 'AbortError') download(); }
+    } else download();
+  };
+  $('#dlBtn').onclick = download;
+  $('#againBtn').onclick = () => { close(); $('#playback').removeAttribute('src'); pos = 0; apply(); };
+
+  function syncSettingsUI() {
+    for (const k of ['speed', 'size', 'band']) $('#' + k).value = settings[k];
+    $('#countdown').checked = settings.countdown; $('#hiq').checked = settings.hiq;
+    $('#speedOut').textContent = settings.speed;
+    $('#sizeOut').textContent = settings.size + ' px';
+    $('#bandOut').textContent = settings.band + '% da tela';
+  }
+  function saveSettings() { store.set('settings', settings); }
+  for (const k of ['speed', 'size', 'band']) {
+    $('#' + k).addEventListener('input', e => { settings[k] = +e.target.value; syncSettingsUI(); saveSettings(); if (k !== 'speed') layout(); });
+  }
+  $('#countdown').onchange = e => { settings.countdown = e.target.checked; saveSettings(); };
+  $('#hiq').onchange = e => { settings.hiq = e.target.checked; saveSettings(); startCamera(); };
+
+  window.addEventListener('resize', layout);
+
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+  renderScript();
+  if (document.fonts) document.fonts.ready.then(layout);
+  startCamera();
+})();
+</script>
+</body>
+</html>
