@@ -1,5 +1,5 @@
 // Guarda o app no celular para abrir mesmo sem internet.
-const CACHE = 'teleprompter-v2';
+const CACHE = 'teleprompter-v3';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-180.png', 'icon-maskable-512.png'];
 
 self.addEventListener('install', e => {

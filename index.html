@@ -91,6 +91,10 @@ input[type=range]{width:100%;accent-color:var(--cue);height:32px}
 #review video{width:100%;max-height:52vh;border-radius:12px;background:#000}
 #msg{position:fixed;left:16px;right:16px;top:40%;background:#16181d;border:1px solid var(--line);border-radius:14px;padding:18px;font-size:15px;line-height:1.5;z-index:6}
 #msg p{margin:0 0 12px}
+#toast{position:fixed;left:16px;right:16px;bottom:calc(24px + env(safe-area-inset-bottom,0px));background:var(--paper);color:var(--ink);border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.4;z-index:7}
+#inapp{position:fixed;left:16px;right:16px;top:calc(16px + env(safe-area-inset-top,0px));background:#16181d;border:1px solid var(--cue);border-radius:14px;padding:16px;font-size:15px;line-height:1.5;z-index:8}
+#inapp p{margin:0 0 10px}
+#inapp .addr{font-family:monospace;color:var(--cue);user-select:all;-webkit-user-select:all;overflow-wrap:anywhere}
 @media (prefers-reduced-motion:reduce){#recBtn span{transition:none}}
 </style>
 </head>
@@ -151,13 +155,20 @@ input[type=range]{width:100%;accent-color:var(--cue);height:32px}
   <video id="playback" controls playsinline></video>
   <p class="hint" id="reviewInfo"></p>
   <div class="row">
-    <button class="primary" id="saveBtn">Salvar no celular</button>
-    <button class="ghost" id="dlBtn">Baixar arquivo</button>
+    <button class="primary" id="dlBtn">Salvar na galeria</button>
+    <button class="ghost" id="saveBtn">Compartilhar</button>
   </div>
   <button class="ghost" id="againBtn">Descartar e gravar de novo</button>
 </section>
 
 <div id="msg" hidden></div>
+<div id="toast" hidden></div>
+<div id="inapp" hidden>
+  <p><strong>Abra este link no Chrome.</strong> Ele está aberto dentro de outro app (WhatsApp, Gmail ou Instagram), e por aqui o celular não deixa salvar o vídeo nem criar o ícone.</p>
+  <p>Toque no menu <strong>⋮</strong> (canto de cima) e escolha <strong>"Abrir no Chrome"</strong>. Se não houver essa opção, copie o endereço abaixo e cole no Chrome.</p>
+  <p class="addr">draanasato.github.io/teleprompter-selfie</p>
+  <div class="row"><button class="primary" id="copyAddr">Copiar endereço</button><button class="ghost" id="inappClose">Fechar</button></div>
+</div>
 
 <script>
 (() => {
@@ -327,13 +338,14 @@ Salve este vídeo para não esquecer.`;
   function finishRecording() {
     toggleUI(false);
     if (!chunks.length) return;
-    const type = (rec && rec.mimeType) || chunks[0].type || 'video/mp4';
+    const raw = (rec && rec.mimeType) || chunks[0].type || 'video/mp4';
+    const type = raw.split(';')[0].trim() || 'video/mp4'; // sem "codecs=...": o Android recusa o arquivo com isso
     blob = new Blob(chunks, { type });
     if (blobUrl) URL.revokeObjectURL(blobUrl);
     blobUrl = URL.createObjectURL(blob);
     $('#playback').src = blobUrl;
     const mb = (blob.size / 1048576).toFixed(1);
-    $('#reviewInfo').textContent = 'Arquivo ' + ext() + ', ' + mb + ' MB. ' + (/iPhone|iPad/.test(navigator.userAgent) ? 'Em "Salvar no celular", escolha "Salvar Vídeo" para ir para o app Fotos.' : 'Em "Salvar no celular", escolha onde guardar (Galeria, Drive, WhatsApp).');
+    $('#reviewInfo').textContent = 'Arquivo ' + ext() + ', ' + mb + ' MB. ' + (isIOS ? 'Em "Compartilhar", escolha "Salvar Vídeo" para ir para o app Fotos.' : '"Salvar na galeria" guarda na pasta Download (aparece na Galeria e no Google Fotos). "Compartilhar" manda para WhatsApp, Drive etc.');
     open('#review');
   }
   function ext() { return blob && blob.type.includes('mp4') ? 'mp4' : 'webm'; }
@@ -341,9 +353,29 @@ Salve este vídeo para não esquecer.`;
     const d = new Date(), p = n => String(n).padStart(2, '0');
     return 'video-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + '.' + ext();
   }
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  function toast(text, ms) {
+    const t = $('#toast'); t.textContent = text; t.hidden = false;
+    clearTimeout(toast.id); toast.id = setTimeout(() => { t.hidden = true; }, ms || 5000);
+  }
   function download() {
-    const a = document.createElement('a'); a.href = blobUrl; a.download = fileName();
-    document.body.appendChild(a); a.click(); a.remove();
+    if (!blob) return;
+    if (isIOS) return share();
+    const file = new File([blob], fileName(), { type: blob.type });
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a'); a.href = url; a.download = file.name; a.rel = 'noopener'; a.style.display = 'none';
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 60000);
+    toast('Salvando "' + file.name + '"... Confira a notificação de download. Se nada aparecer, use "Compartilhar" e escolha Drive ou Google Fotos.', 8000);
+  }
+  async function share() {
+    if (!blob) return;
+    const file = new File([blob], fileName(), { type: blob.type });
+    if (!(navigator.canShare && navigator.canShare({ files: [file] }))) {
+      return isIOS ? toast('Este navegador não deixa compartilhar o vídeo. Abra o app pelo Safari.') : download();
+    }
+    try { await navigator.share({ files: [file] }); }
+    catch (e) { if (e.name !== 'AbortError') toast('Não consegui abrir o compartilhamento (' + e.name + '). Tente "Salvar na galeria".', 8000); }
   }
 
   function toggleUI(rec) {
@@ -373,13 +405,20 @@ Salve este vídeo para não esquecer.`;
   $('#slower').onclick = () => { settings.speed = Math.max(10, settings.speed - 5); $('#speedVal').textContent = settings.speed; saveSettings(); };
   $('#faster').onclick = () => { settings.speed = Math.min(150, settings.speed + 5); $('#speedVal').textContent = settings.speed; saveSettings(); };
 
-  $('#saveBtn').onclick = async () => {
-    const file = new File([blob], fileName(), { type: blob.type });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file] }); } catch (e) { if (e.name !== 'AbortError') download(); }
-    } else download();
-  };
+  $('#saveBtn').onclick = share;
   $('#dlBtn').onclick = download;
+  if (isIOS) { $('#dlBtn').textContent = 'Salvar no Fotos'; $('#saveBtn').textContent = 'Compartilhar'; }
+
+  // Aberto dentro do WhatsApp/Instagram/Gmail etc.: avisa para abrir no navegador de verdade
+  const ua = navigator.userAgent;
+  const inApp = /; wv\)|FBAN|FBAV|Instagram|WhatsApp|GSA\/|Line\//.test(ua);
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  if (inApp && !standalone) $('#inapp').hidden = false;
+  $('#inappClose').onclick = () => { $('#inapp').hidden = true; };
+  $('#copyAddr').onclick = () => {
+    const addr = 'https://draanasato.github.io/teleprompter-selfie/';
+    navigator.clipboard.writeText(addr).then(() => toast('Endereço copiado. Abra o Chrome e cole na barra de endereço.'), () => toast('Toque e segure o endereço para copiar.'));
+  };
   $('#againBtn').onclick = () => { close(); $('#playback').removeAttribute('src'); pos = 0; apply(); };
 
   function syncSettingsUI() {
